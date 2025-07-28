@@ -341,9 +341,29 @@ app.listen(PORT, () => {
 
       const horoscopeData = JSON.parse(jsonMatch[0]);
 
-      // Save horoscope to DB
+      // --- FIX for luckyElements ---
+      // Format luckyElements into a readable string if it's an object
+      let luckyElementsText = horoscopeData.luckyElements;
+      if (typeof luckyElementsText === 'object' && luckyElementsText !== null) {
+        luckyElementsText = Object.entries(luckyElementsText)
+          .map(([key, value]) => {
+            const formattedValue = Array.isArray(value) ? value.join(', ') : value;
+            const capitalizedKey = key.charAt(0).toUpperCase() + key.slice(1);
+            return `- ${capitalizedKey}: ${formattedValue}`;
+          })
+          .join('\n');
+      } else if (typeof luckyElementsText !== 'string') {
+        luckyElementsText = String(luckyElementsText);
+      }
+      // --- END FIX ---
+
+      // Save horoscope to DB, ensuring we save the original JSON structure if needed
+      const elementsToSave = typeof horoscopeData.luckyElements === 'object' 
+        ? JSON.stringify(horoscopeData.luckyElements) 
+        : horoscopeData.luckyElements;
+
       const insertSql = `INSERT INTO horoscopes (user_id, introduction, futureOutlook, challenges, advice, luckyElements) VALUES (?, ?, ?, ?, ?, ?)`;
-      db.run(insertSql, [userId, horoscopeData.introduction, horoscopeData.futureOutlook, horoscopeData.challenges, horoscopeData.advice, horoscopeData.luckyElements], (err) => {
+      db.run(insertSql, [userId, horoscopeData.introduction, horoscopeData.futureOutlook, horoscopeData.challenges, horoscopeData.advice, elementsToSave], (err) => {
         if (err) {
           console.error("DB insert error:", err.message);
           bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего гороскопа. Попробуйте позже.');
@@ -364,7 +384,7 @@ ${horoscopeData.challenges}
 ${horoscopeData.advice}
 
 🍀 *Счастливые элементы:*
-${horoscopeData.luckyElements}
+${luckyElementsText}
         `;
 
         bot.sendMessage(chatId, horoscopeMessage, { parse_mode: 'Markdown' });
