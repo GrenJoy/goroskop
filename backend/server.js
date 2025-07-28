@@ -99,7 +99,22 @@ app.post('/horoscope', authenticateToken, async (req, res) => {
   const userId = req.userId;
 
   // This is the same prompt logic from your original api.ts
-  const prompt = `You are an expert astrologer... (rest of the prompt for generating a horoscope in JSON format)`; // Abridged for brevity
+  const prompt = `
+    You are a mystical and wise astrologer. Your task is to generate a personalized horoscope based on the user's data.
+    The user's name is ${name}.
+    They were born on ${birthDate}.
+    Their self-described personality traits are: ${traits.join(', ')}.
+    Here is a little bit about them in their own words: "${about}".
+
+    Based on this information, provide a detailed and insightful horoscope. Structure your response as a JSON object with the following keys:
+    - "introduction": A warm, cosmic greeting to ${name}.
+    - "futureOutlook": Predictions about their near future (next 7 days).
+    - "challenges": Potential challenges they might face and how to overcome them.
+    - "advice": Specific, actionable advice for their personal growth.
+    - "luckyElements": Mention their lucky numbers, colors, or stones for the week.
+
+    Your tone should be encouraging, mysterious, and profound. The response MUST be a valid JSON object and nothing else.
+    `;
 
   try {
     const deepseekResponse = await fetch(DEEPSEEK_API_URL, {
