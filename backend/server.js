@@ -137,7 +137,7 @@ app.listen(PORT, () => {
   
   // --- TELEGRAM BOT INITIALIZATION ---
   // We start the bot ONLY after the web server is successfully running.
-  const TELEGRAM_TOKEN = '7996945974:AAGQ92e_qrZiZ8VWhKZZDHhQoAnDGfvxips';
+  const TELEGRAM_TOKEN = '7996945974:AAGQ92e_qrZiZ8VWhKZZDHhQoAnDGfvxips1'; // Temporarily changed
   const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
   bot.on('polling_error', (error) => {
