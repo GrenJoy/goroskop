@@ -78,15 +78,7 @@ async function getHoroscopeFromAPI(prompt) {
 }
 
 // --- NEW, SIMPLIFIED PROMPT TEMPLATE ---
-javascript
 
-Свернуть
-
-Перенос
-
-Исполнить
-
-Копировать
 function getHoroscopePrompt(name, birthDate, traits, about) {
   return `
 Ты — мистический и мудрый астролог. Твоя задача — создать персонализированный гороскоп для пользователя на основе следующих данных:
