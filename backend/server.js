@@ -231,20 +231,149 @@ app.listen(PORT, () => {
     });
   });
 
-  bot.on('message', (msg) => {
+  bot.on('message', async (msg) => { // Make the handler async
     const chatId = msg.chat.id;
     const text = msg.text;
 
+    // Ignore commands and non-text messages in this handler
     if (!text || text.startsWith('/')) return;
 
     const conversation = userConversations[chatId];
-    if (!conversation) return;
+    if (!conversation) return; // Not in a conversation
 
-    // ... (rest of the conversation logic)
+    try {
+      switch (conversation.step) {
+        case 1: // User sent their name
+          conversation.answers.name = text;
+          conversation.step = 2;
+          bot.sendMessage(chatId, `Приятно познакомиться, ${text}!
+
+Теперь введите вашу дату рождения (например, 01.01.1990).`);
+          break;
+        case 2: // User sent their birth date
+          // Basic validation for date format
+          if (!/^\d{2}\.\d{2}\.\d{4}$/.test(text)) {
+            bot.sendMessage(chatId, 'Пожалуйста, введите дату в формате ДД.ММ.ГГГГ. Например: 31.12.1990');
+            return; // Stay on the same step
+          }
+          conversation.answers.birthDate = text;
+          conversation.step = 3;
+          // In a real app, this might come from a shared config or DB.
+          const traits = ["Амбициозный", "Артистичный", "Практичный", "Эмпатичный", "Осторожный", "Оптимист"];
+          bot.sendMessage(chatId, `Отлично. Перечислите через запятую несколько ваших черт характера (например: добрый, амбициозный, нетерпеливый).
+
+Варианты: ${traits.join(', ')}`);
+          break;
+        case 3: // User sent their traits
+          conversation.answers.traits = text.split(',').map(t => t.trim());
+          conversation.step = 4;
+          bot.sendMessage(chatId, 'И последнее: расскажите немного о себе. Что вас сейчас волнует, к чему вы стремитесь?');
+          break;
+        case 4: // User sent the "about" text
+          conversation.answers.about = text;
+          bot.sendMessage(chatId, 'Благодарю. Звезды уже выстраиваются в ряд... Я тку для вас предсказание. Это займет мгновение... ✨');
+          
+          // Generate the horoscope
+          await generateAndSaveHoroscope(conversation.answers, chatId);
+
+          // Clean up the conversation state
+          delete userConversations[chatId];
+          break;
+      }
+    } catch (error) {
+        console.error('Conversation processing error:', error);
+        bot.sendMessage(chatId, 'Произошла внутренняя ошибка. Попробуйте начать заново с команды /horoscope');
+        // Clean up conversation on error
+        delete userConversations[chatId];
+    }
   });
 
   async function generateAndSaveHoroscope(userData, chatId) {
-    // ... (rest of the generation logic)
+    const { userId, name, birthDate, traits, about } = userData;
+
+    const prompt = `
+    Ты — Лира, Звёздная Ткачиха, древний и мудрый астролог, что читает узоры на космическом полотне. Твоя речь плавна, загадочна и полна метафор. Твоя священная задача — соткать глубоко личный и проницательный гороскоп, который станет путеводной звездой для вопрошающего.
+
+    Вот кто обратился к тебе за советом:
+    - Имя: ${name}
+    - Дата рождения: ${birthDate}
+    - Его/её черты характера: ${traits.join(', ')}
+    - Самое важное — его/её мысли и стремления: "${about}"
+
+    Твоя главная задача — вслушаться в то, о чем говорит ${name} в разделе "о себе". Твои предсказания и советы должны быть напрямую связаны с его/её текущей жизненной ситуацией, целями и переживаниями. Если он ищет любовь, говори о любви. Если его волнует карьера, направь его в этой сфере.
+
+    Свой ответ ты должна облечь в форму чистого JSON-объекта, без единого слова до или после него. Этот объект должен содержать пять обязательных ключей:
+
+    - "introduction": Начни с мистического и личного приветствия. (Пример: "Космические ветра шепчут мне твое имя, ${name}. Я, Лира, раскинула звёздные карты, чтобы узреть твой путь...")
+    - "futureOutlook": Нарисуй яркую картину ближайшего будущего (7 дней), уделяя особое внимание тому, что волнует ${name}. Опиши возможные встречи, знаки судьбы и внутренние озарения. Твой рассказ должен быть подробным и вдохновляющим.
+    - "challenges": Поведай о тенях на его/её пути. Какие внутренние или внешние преграды могут возникнуть? Дай мудрый совет, как превратить вызов в источник силы.
+    - "advice": Предложи несколько глубоких, нетривиальных советов, которые помогут ${name} в его/её стремлениях. Это должны быть не общие фразы, а конкретные духовные или практические шаги.
+    - "luckyElements": Раскрой тайные знаки удачи на эту неделю. Это могут быть цвета, числа, минералы, запахи или даже время суток. (Пример: "На этой неделе твоими космическими союзниками будут: глубокий сапфировый цвет, число 9 и аромат сандала на закате.")
+
+    Помни, Звёздная Ткачиха, твой ответ — это только JSON. Все пять ключей обязательны. Наполни каждый из них мудростью и поэзией звезд.
+    ВАЖНО: Ответ должен быть полным JSON-объектом. Пустые строки или отсутствующие ключи недопустимы и приведут к провалу твоего предсказания. Убедись, что все пять полей ("introduction", "futureOutlook", "challenges", "advice", "luckyElements") содержат развернутый текст.
+    `;
+
+    try {
+      const deepseekResponse = await fetch(DEEPSEEK_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+          max_tokens: 2048
+        }),
+      });
+
+      if (!deepseekResponse.ok) {
+          const errorBody = await deepseekResponse.text();
+          throw new Error(`Failed to fetch from DeepSeek API. Status: ${deepseekResponse.status}, Body: ${errorBody}`);
+      }
+      
+      const data = await deepseekResponse.json();
+      const content = data.choices[0].message.content;
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('Invalid JSON response from AI');
+
+      const horoscopeData = JSON.parse(jsonMatch[0]);
+
+      // Save horoscope to DB
+      const insertSql = `INSERT INTO horoscopes (user_id, introduction, futureOutlook, challenges, advice, luckyElements) VALUES (?, ?, ?, ?, ?, ?)`;
+      db.run(insertSql, [userId, horoscopeData.introduction, horoscopeData.futureOutlook, horoscopeData.challenges, horoscopeData.advice, horoscopeData.luckyElements], (err) => {
+        if (err) {
+          console.error("DB insert error:", err.message);
+          bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего гороскопа. Попробуйте позже.');
+          return;
+        }
+        
+        // Format and send the message to the user
+        const horoscopeMessage = `
+*${horoscopeData.introduction}*
+
+🔮 *Прогноз на будущее:*
+${horoscopeData.futureOutlook}
+
+⚔️ *Испытания и возможности:*
+${horoscopeData.challenges}
+
+💡 *Советы звезд:*
+${horoscopeData.advice}
+
+🍀 *Счастливые элементы:*
+${horoscopeData.luckyElements}
+        `;
+
+        bot.sendMessage(chatId, horoscopeMessage, { parse_mode: 'Markdown' });
+      });
+
+    } catch (error) {
+      console.error('Horoscope generation error:', error);
+      bot.sendMessage(chatId, 'Не удалось соткать ваш гороскоп. Космические ветра сегодня неспокойны. Пожалуйста, попробуйте снова позже.');
+    }
   }
 
   console.log('Telegram bot has been started...');
