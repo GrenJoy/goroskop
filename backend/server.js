@@ -119,6 +119,7 @@ app.post('/horoscope', authenticateToken, async (req, res) => {
     - "luckyElements": Раскрой тайные знаки удачи на эту неделю. Это могут быть цвета, числа, минералы, запахи или даже время суток. (Пример: "На этой неделе твоими космическими союзниками будут: глубокий сапфировый цвет, число 9 и аромат сандала на закате.")
 
     Помни, Звёздная Ткачиха, твой ответ — это только JSON. Все пять ключей обязательны. Наполни каждый из них мудростью и поэзией звезд.
+    ВАЖНО: Ответ должен быть полным JSON-объектом. Пустые строки или отсутствующие ключи недопустимы и приведут к провалу твоего предсказания. Убедись, что все пять полей ("introduction", "futureOutlook", "challenges", "advice", "luckyElements") содержат развернутый текст.
     `;
 
   try {
@@ -128,7 +129,12 @@ app.post('/horoscope', authenticateToken, async (req, res) => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
       },
-      body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'user', content: prompt }], temperature: 0.7 }),
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        max_tokens: 2048
+      }),
     });
 
     if (!deepseekResponse.ok) throw new Error('Failed to fetch from DeepSeek API');
