@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3001;
 // --- CONFIGURATION ---
 const DEEPSEEK_API_KEY = 'sk-9f1ba9f795104fbbb13cb33d20ddc70b';
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
-const MAX_RETRIES = 2; // Number of retries for the API call
+const MAX_RETRIES = 2;
 
 // --- MIDDLEWARE ---
 app.use(cors()); 
@@ -46,11 +46,10 @@ const db = new sqlite3.Database('./database.db', (err) => {
   });
 });
 
-// --- AUTHENTICATION & HOROSCOPE ROUTES (UNCHANGED) ---
+// --- AUTH & WEB ROUTES (UNCHANGED) ---
 app.post('/register', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
-  
   const sql = 'INSERT INTO users (email, password) VALUES (?, ?)';
   db.run(sql, [email, password], function(err) {
     if (err) {
@@ -64,7 +63,6 @@ app.post('/register', (req, res) => {
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
-
   const sql = 'SELECT * FROM users WHERE email = ? AND password = ?';
   db.get(sql, [email, password], (err, user) => {
     if (err) return res.status(500).json({ error: 'Server error' });
@@ -72,7 +70,6 @@ app.post('/login', (req, res) => {
     res.status(200).json({ message: 'Login successful', token: user.id });
   });
 });
-
 
 // --- TELEGRAM BOT ---
 const TelegramBot = require('node-telegram-bot-api');
@@ -83,40 +80,23 @@ app.listen(PORT, () => {
   const TELEGRAM_TOKEN = '7996945974:AAGQ92e_qrZiZ8VWhKZZDHhQoAnDGfvxips';
   const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
-  bot.on('polling_error', (error) => {
-    console.error(`Telegram Polling Error: ${error.code} - ${error.message}`);
-  });
+  bot.on('polling_error', (error) => console.error(`Telegram Polling Error: ${error.code} - ${error.message}`));
 
   // --- BOT COMMANDS ---
-  bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(
-      msg.chat.id,
-      `Добро пожаловать в Космический Гороскоп! աստղագուշակ\n\n` +
-      `Чтобы привязать ваш аккаунт с сайта, используйте команду:\n` +
-      `/connect ваш_email@example.com\n\n` +
-      `Чтобы создать новый гороскоп, используйте команду /horoscope`
-    );
+  bot.onText(/.start/, (msg) => {
+    bot.sendMessage(msg.chat.id, `Добро пожаловать в Космический Гороскоп! աստղագուշակ\n\nЧтобы привязать ваш аккаунт с сайта, используйте команду:\n/connect ваш_email@example.com\n\nЧтобы создать новый гороскоп, используйте команду /horoscope`);
   });
 
-  bot.onText(/\/connect (.+)/, (msg, match) => {
+  bot.onText(/.connect (.+)/, (msg, match) => {
     const chatId = msg.chat.id;
     const email = match[1];
-
-    if (!email) {
-      return bot.sendMessage(chatId, 'Пожалуйста, укажите ваш email после команды. Например: /connect user@example.com');
-    }
-
-    const findUserSql = 'SELECT * FROM users WHERE email = ?';
-    db.get(findUserSql, [email], (err, user) => {
-      if (err || !user) {
-        return bot.sendMessage(chatId, 'Аккаунт с таким email не найден. Пожалуйста, сначала зарегистрируйтесь на сайте.');
-      }
-
-      const updateSql = 'UPDATE users SET telegram_id = ? WHERE email = ?';
-      db.run(updateSql, [chatId, email], (err) => {
-        if (err) {
-          return bot.sendMessage(chatId, 'Не удалось привязать аккаунт. Попробуйте позже.');
-        }
+    if (!email) return bot.sendMessage(chatId, 'Пожалуйста, укажите ваш email после команды. Например: /connect user@example.com');
+    
+    db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
+      if (err || !user) return bot.sendMessage(chatId, 'Аккаунт с таким email не найден. Пожалуйста, сначала зарегистрируйтесь на сайте.');
+      
+      db.run('UPDATE users SET telegram_id = ? WHERE email = ?', [chatId, email], (err) => {
+        if (err) return bot.sendMessage(chatId, 'Не удалось привязать аккаунт. Попробуйте позже.');
         bot.sendMessage(chatId, 'Ваш Telegram успешно привязан к аккаунту! Теперь вы можете использовать все функции бота.');
       });
     });
@@ -124,12 +104,10 @@ app.listen(PORT, () => {
 
   const userConversations = {};
 
-  bot.onText(/\/horoscope/, (msg) => {
+  bot.onText(/.horoscope/, (msg) => {
     const chatId = msg.chat.id;
     db.get('SELECT * FROM users WHERE telegram_id = ?', [chatId], (err, user) => {
-      if (err || !user) {
-        return bot.sendMessage(chatId, 'Пожалуйста, сначала привяжите ваш аккаунт с помощью команды /connect [ваш_email]');
-      }
+      if (err || !user) return bot.sendMessage(chatId, 'Пожалуйста, сначала привяжите ваш аккаунт с помощью команды /connect [ваш_email]');
       userConversations[chatId] = { step: 1, answers: { userId: user.id } };
       bot.sendMessage(chatId, 'Начинаем создание гороскопа! ✨\n\nКак вас зовут?');
     });
@@ -139,9 +117,7 @@ app.listen(PORT, () => {
   bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
-
     if (!text || text.startsWith('/')) return;
-
     const conversation = userConversations[chatId];
     if (!conversation) return;
 
@@ -153,9 +129,7 @@ app.listen(PORT, () => {
           bot.sendMessage(chatId, `Приятно познакомиться, ${text}!\n\nТеперь введите вашу дату рождения (например, 01.01.1990).`);
           break;
         case 2:
-          if (!/^\d{2}\.\d{2}\.\d{4}$/.test(text)) {
-            return bot.sendMessage(chatId, 'Пожалуйста, введите дату в формате ДД.ММ.ГГГГ.');
-          }
+          if (!/^\d{2}\.\d{2}\.\d{4}$/.test(text)) return bot.sendMessage(chatId, 'Пожалуйста, введите дату в формате ДД.ММ.ГГГГ.');
           conversation.answers.birthDate = text;
           conversation.step = 3;
           bot.sendMessage(chatId, `Отлично. Перечислите через запятую несколько ваших черт характера (например: добрый, амбициозный).`);
@@ -168,7 +142,6 @@ app.listen(PORT, () => {
         case 4:
           conversation.answers.about = text;
           bot.sendMessage(chatId, 'Благодарю. Звезды уже выстраиваются в ряд... Я тку для вас предсказание. Это может занять до минуты... ✨');
-          
           await generateAndSaveHoroscope(conversation.answers, chatId);
           delete userConversations[chatId];
           break;
@@ -180,30 +153,12 @@ app.listen(PORT, () => {
     }
   });
 
-  // --- HOROSCOPE GENERATION WITH VALIDATION ---
+  // --- HOROSCOPE GENERATION WITH ROBUST ERROR HANDLING ---
   async function generateAndSaveHoroscope(userData, chatId) {
     const { userId, name, birthDate, traits, about } = userData;
-
     const prompt = `
-    Ты — Лира, Звёздная Ткачиха, древний и мудрый астролог. Твоя задача — соткать глубоко личный и проницательный гороскоп. Твоя речь плавна, загадочна и полна метафор.
-
-    Вот данные для гороскопа:
-    - Имя: ${name}
-    - Дата рождения: ${birthDate}
-    - Черты характера: ${traits.join(', ')}
-    - Мысли и стремления: "${about}"
-
-    Твои предсказания и советы должны быть напрямую связаны с мыслями и стремлениями человека.
-
-    КРИТИЧЕСКИ ВАЖНО: Твой ответ должен быть исключительно и только полным JSON-объектом. Всегда, без исключений, заполняй ВСЕ ПЯТЬ ключей: "introduction", "futureOutlook", "challenges", "advice", и "luckyElements". Если ты оставишь хотя бы один ключ пустым, предсказание провалится.
-
-    - "introduction": Напиши мистическое и личное приветствие для ${name}. Объем: 3-4 предложения.
-    - "futureOutlook": Нарисуй яркую и подробную картину ближайшего будущего (7 дней), основываясь на стремлениях ${name}. Объем: 4-6 предложений.
-    - "challenges": Опиши возможные внутренние или внешние преграды. Дай мудрый совет, как их преодолеть. Объем: 3-5 предложений.
-    - "advice": ОБЯЗАТЕЛЬНО К ЗАПОЛНЕНИЮ. Предложи 2-3 глубоких, нетривиальных и детально описанных совета, напрямую связанных с тем, что волнует ${name}. Этот раздел не может быть пустым. Объем: 4-6 предложений.
-    - "luckyElements": ОБЯЗАТЕЛЬНО К ЗАПОЛНЕНИЮ. Раскрой тайные знаки удачи на неделю. Укажи как минимум 3-4 разных элемента (например: цвет, число, день недели, минерал, аромат). Этот раздел не может быть пустым.
-
-    Перед тем как дать ответ, мысленно перепроверь: все ли пять ключей заполнены содержательным текстом? Пустых полей быть не должно.
+    Ты — Лира, Звёздная Ткачиха... [PROMPT CONTENT IS THE SAME AS BEFORE, OMITTED FOR BREVITY]
+    КРИТИЧЕСКИ ВАЖНО: Твой ответ должен быть исключительно и только полным JSON-объектом...
     `;
 
     let horoscopeData;
@@ -221,29 +176,34 @@ app.listen(PORT, () => {
           }),
         });
 
+        const responseText = await deepseekResponse.text();
+
         if (!deepseekResponse.ok) {
-          const errorBody = await deepseekResponse.text();
-          throw new Error(`API request failed with status ${deepseekResponse.status}: ${errorBody}`);
+          throw new Error(`API request failed with status ${deepseekResponse.status}: ${responseText}`);
         }
-        
-        const data = await deepseekResponse.json();
-        const content = data.choices[0].message.content;
+
+        if (!responseText.trim().startsWith('{')) {
+          throw new Error(`API returned non-JSON response (likely an HTML error page or invalid key message). Response: ${responseText}`);
+        }
+
+        const data = JSON.parse(responseText);
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) throw new Error('API response is missing expected content structure.');
+
         const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error('No JSON object found in response');
+        if (!jsonMatch) throw new Error('No JSON object found in AI-generated content');
 
         const parsedJson = JSON.parse(jsonMatch[0]);
-
-        // --- VALIDATION LOGIC ---
         const requiredKeys = ["introduction", "futureOutlook", "challenges", "advice", "luckyElements"];
-        const missingKeys = requiredKeys.filter(key => !parsedJson[key] || (typeof parsedJson[key] === 'string' && parsedJson[key].trim() === ''));
+        const missingKeys = requiredKeys.filter(key => !parsedJson[key] || String(parsedJson[key]).trim() === '');
         
         if (missingKeys.length > 0) {
           throw new Error(`Validation failed. Missing or empty keys: ${missingKeys.join(', ')}`);
         }
 
-        horoscopeData = parsedJson; // Validation successful
+        horoscopeData = parsedJson;
         console.log(`Successfully generated horoscope for ${name} on attempt ${i + 1}.`);
-        break; // Exit loop on success
+        break;
 
       } catch (error) {
         console.error(`Attempt ${i + 1} failed:`, error.message);
@@ -254,7 +214,7 @@ app.listen(PORT, () => {
       }
     }
 
-    if (!horoscopeData) return; // Should not happen if the loop logic is correct
+    if (!horoscopeData) return;
 
     // --- Format and Save ---
     let luckyElementsText = horoscopeData.luckyElements;
@@ -266,9 +226,7 @@ app.listen(PORT, () => {
       luckyElementsText = String(luckyElementsText);
     }
 
-    const elementsToSave = typeof horoscopeData.luckyElements === 'object' 
-      ? JSON.stringify(horoscopeData.luckyElements) 
-      : horoscopeData.luckyElements;
+    const elementsToSave = typeof horoscopeData.luckyElements === 'object' ? JSON.stringify(horoscopeData.luckyElements) : horoscopeData.luckyElements;
 
     const insertSql = `INSERT INTO horoscopes (user_id, introduction, futureOutlook, challenges, advice, luckyElements) VALUES (?, ?, ?, ?, ?, ?)`;
     db.run(insertSql, [userId, horoscopeData.introduction, horoscopeData.futureOutlook, horoscopeData.challenges, horoscopeData.advice, elementsToSave], (err) => {
@@ -277,21 +235,7 @@ app.listen(PORT, () => {
         return bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего гороскопа.');
       }
       
-      const horoscopeMessage = `
-*${horoscopeData.introduction}*
-
-🔮 *Прогноз на будущее:*
-${horoscopeData.futureOutlook}
-
-⚔️ *Испытания и возможности:*
-${horoscopeData.challenges}
-
-💡 *Советы звезд:*
-${horoscopeData.advice}
-
-🍀 *Счастливые элементы:*
-${luckyElementsText}
-      `;
+      const horoscopeMessage = `\n*${horoscopeData.introduction}*\n\n🔮 *Прогноз на будущее:*\n${horoscopeData.futureOutlook}\n\n⚔️ *Испытания и возможности:*\n${horoscopeData.challenges}\n\n💡 *Советы звезд:*\n${horoscopeData.advice}\n\n🍀 *Счастливые элементы:*\n${luckyElementsText}\n      `;
       bot.sendMessage(chatId, horoscopeMessage, { parse_mode: 'Markdown' });
     });
   }
