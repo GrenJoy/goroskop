@@ -13,7 +13,8 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const apiRequest = async (endpoint: 'login' | 'register') => {
-    const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+    // HARDCODED URL FOR FINAL DEBUGGING
+    const API_URL = 'https://goroskop.onrender.com'; 
     setIsLoading(true);
     setError('');
     try {
