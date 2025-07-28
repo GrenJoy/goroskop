@@ -13,10 +13,11 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const apiRequest = async (endpoint: 'login' | 'register') => {
+    const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
     setIsLoading(true);
     setError('');
     try {
-      const response = await fetch(`http://localhost:3001/${endpoint}`, {
+      const response = await fetch(`${API_URL}/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),

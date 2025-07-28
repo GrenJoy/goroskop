@@ -26,11 +26,12 @@ function App() {
   const handleFormSubmit = async (data: UserData) => {
     if (!authToken) return;
 
+    const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
     setUserData(data);
     setIsLoading(true);
     setState('loading');
     try {
-      const response = await fetch('http://localhost:3001/horoscope', {
+      const response = await fetch(`${API_URL}/horoscope`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

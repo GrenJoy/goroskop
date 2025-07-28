@@ -1,0 +1,1 @@
+\"feat: Initial commit of full-stack horoscope generator\"  
