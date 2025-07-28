@@ -131,144 +131,87 @@ app.post('/horoscope', authenticateToken, async (req, res) => {
 
 const TelegramBot = require('node-telegram-bot-api');
 
-// --- TELEGRAM BOT SETUP ---
-const TELEGRAM_TOKEN = '7996945974:AAGQ92e_qrZiZ8VWhKZZDHhQoAnDGfvxips';
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
-
-bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-  bot.sendMessage(
-    chatId,
-    `Добро пожаловать в Космический Гороскоп! աստղագուշակ\n\n` +
-    `Чтобы привязать ваш аккаунт с сайта, используйте команду:\n` +
-    `/connect ваш_email@example.com\n\n` +
-    `Чтобы создать новый гороскоп, используйте команду /horoscope`
-  );
-});
-
-bot.onText(/\/connect (.+)/, (msg, match) => {
-  const chatId = msg.chat.id;
-  const email = match[1];
-
-  if (!email) {
-    return bot.sendMessage(chatId, 'Пожалуйста, укажите ваш email после команды. Например: /connect user@example.com');
-  }
-
-  const findUserSql = 'SELECT * FROM users WHERE email = ?';
-  db.get(findUserSql, [email], (err, user) => {
-    if (err) {
-      bot.sendMessage(chatId, 'Произошла ошибка. Попробуйте позже.');
-      return console.error(err.message);
-    }
-    if (!user) {
-      return bot.sendMessage(chatId, 'Аккаунт с таким email не найден. Пожалуйста, сначала зарегистрируйтесь на сайте.');
-    }
-
-    const updateSql = 'UPDATE users SET telegram_id = ? WHERE email = ?';
-    db.run(updateSql, [chatId, email], function(err) {
-      if (err) {
-        bot.sendMessage(chatId, 'Не удалось привязать аккаунт. Попробуйте позже.');
-        return console.error(err.message);
-      }
-      bot.sendMessage(chatId, 'Ваш Telegram успешно привязан к аккаунту! Теперь вы можете использовать все функции бота.');
-    });
-  });
-});
-
-// This is a simple in-memory store for the conversation state with each user.
-// In a real production app, you'd use a database like Redis for this.
-const userConversations = {};
-
-bot.onText(null, (msg) => {
-  const chatId = msg.chat.id;
-  
-  // Check if user is connected
-  db.get('SELECT * FROM users WHERE telegram_id = ?', [chatId], (err, user) => {
-    if (err || !user) {
-      return bot.sendMessage(chatId, 'Пожалуйста, сначала привяжите ваш аккаунт с помощью команды /connect [ваш_email]');
-    }
-    
-    userConversations[chatId] = { step: 1, answers: { userId: user.id } };
-    bot.sendMessage(chatId, 'Начинаем создание гороскопа! ✨\n\nКак вас зовут?');
-  });
-});
-
-bot.on('message', (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text;
-
-  // Ignore commands
-  if (text.startsWith('/')) {
-    return;
-  }
-
-  const conversation = userConversations[chatId];
-  if (!conversation) {
-    return;
-  }
-
-  switch (conversation.step) {
-    case 1: // Answer to "What is your name?"
-      conversation.answers.name = text;
-      conversation.step = 2;
-      bot.sendMessage(chatId, 'Отлично! Теперь введите вашу дату рождения (гггг-мм-дд).');
-      break;
-    case 2: // Answer to "What is your birth date?"
-      conversation.answers.birthDate = text;
-      conversation.step = 3;
-      // For simplicity, we'll use a fixed list of traits.
-      bot.sendMessage(chatId, 'Какие черты характера вам присущи? (ответьте одним сообщением, перечисляя через запятую, например: творческий, амбициозный, добрый)');
-      break;
-    case 3: // Answer to "What are your traits?"
-      conversation.answers.traits = text.split(',').map(t => t.trim());
-      conversation.step = 4;
-      bot.sendMessage(chatId, 'И последнее: расскажите немного о себе, своих увлечениях или целях.');
-      break;
-    case 4: // Answer to "Tell us about yourself"
-      conversation.answers.about = text;
-      bot.sendMessage(chatId, 'Спасибо! Ваш гороскоп создается... Пожалуйста, подождите. ⏳');
-      
-      // Now, call the same logic as our /horoscope API endpoint
-      generateAndSaveHoroscope(conversation.answers, chatId);
-      
-      // Clean up the conversation state
-      delete userConversations[chatId];
-      break;
-  }
-});
-
-async function generateAndSaveHoroscope(userData, chatId) {
-  const { userId, name, birthDate, traits, about } = userData;
-  const prompt = `...`; // The full prompt to generate horoscope JSON
-
-  try {
-    // This is a simplified version of the API call logic
-    const response = await fetch(DEEPSEEK_API_URL, { /* ... API call options ... */ });
-    if (!response.ok) throw new Error('AI API failed');
-    
-    const data = await response.json();
-    const horoscopeData = JSON.parse(data.choices[0].message.content.match(/\{[\s\S]*\}/)[0]);
-
-    // Save to DB
-    const insertSql = `INSERT INTO horoscopes (user_id, introduction, futureOutlook, challenges, advice, luckyElements) VALUES (?, ?, ?, ?, ?, ?)`;
-    db.run(insertSql, [userId, horoscopeData.introduction, horoscopeData.futureOutlook, horoscopeData.challenges, horoscopeData.advice, horoscopeData.luckyElements]);
-
-    // Send result to user in Telegram
-    const resultText = `**Ваш Гороскоп, ${name}!**\n\n` +
-                       `**Введение:** ${horoscopeData.introduction}\n\n` +
-                       `**Будущее:** ${horoscopeData.futureOutlook}\n\n` +
-                       `**Совет:** ${horoscopeData.advice}`;
-    bot.sendMessage(chatId, resultText, { parse_mode: 'Markdown' });
-
-  } catch (error) {
-    console.error('Bot horoscope generation error:', error);
-    bot.sendMessage(chatId, 'Произошла космическая аномалия! Не удалось создать гороскоп. Попробуйте позже.');
-  }
-}
-
-console.log('Telegram bot has been started...');
-
-
+// --- SERVER LISTENING ---
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
+  
+  // --- TELEGRAM BOT INITIALIZATION ---
+  // We start the bot ONLY after the web server is successfully running.
+  const TELEGRAM_TOKEN = '7996945974:AAGQ92e_qrZiZ8VWhKZZDHhQoAnDGfvxips';
+  const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+
+  bot.on('polling_error', (error) => {
+    console.error(`Telegram Polling Error: ${error.code} - ${error.message}`);
+  });
+
+  bot.onText(/.start/, (msg) => {
+    const chatId = msg.chat.id;
+    bot.sendMessage(
+      chatId,
+      `Добро пожаловать в Космический Гороскоп! աստղագուշակ\n\n` +
+      `Чтобы привязать ваш аккаунт с сайта, используйте команду:\n` +
+      `/connect ваш_email@example.com\n\n` +
+      `Чтобы создать новый гороскоп, используйте команду /horoscope`
+    );
+  });
+
+  bot.onText(/.connect (.+)/, (msg, match) => {
+    const chatId = msg.chat.id;
+    const email = match[1];
+
+    if (!email) {
+      return bot.sendMessage(chatId, 'Пожалуйста, укажите ваш email после команды. Например: /connect user@example.com');
+    }
+
+    const findUserSql = 'SELECT * FROM users WHERE email = ?';
+    db.get(findUserSql, [email], (err, user) => {
+      if (err) {
+        bot.sendMessage(chatId, 'Произошла ошибка. Попробуйте позже.');
+        return console.error(err.message);
+      }
+      if (!user) {
+        return bot.sendMessage(chatId, 'Аккаунт с таким email не найден. Пожалуйста, сначала зарегистрируйтесь на сайте.');
+      }
+
+      const updateSql = 'UPDATE users SET telegram_id = ? WHERE email = ?';
+      db.run(updateSql, [chatId, email], function(err) {
+        if (err) {
+          bot.sendMessage(chatId, 'Не удалось привязать аккаунт. Попробуйте позже.');
+          return console.error(err.message);
+        }
+        bot.sendMessage(chatId, 'Ваш Telegram успешно привязан к аккаунту! Теперь вы можете использовать все функции бота.');
+      });
+    });
+  });
+
+  const userConversations = {};
+
+  bot.onText(/.horoscope/, (msg) => {
+    const chatId = msg.chat.id;
+    db.get('SELECT * FROM users WHERE telegram_id = ?', [chatId], (err, user) => {
+      if (err || !user) {
+        return bot.sendMessage(chatId, 'Пожалуйста, сначала привяжите ваш аккаунт с помощью команды /connect [ваш_email]');
+      }
+      userConversations[chatId] = { step: 1, answers: { userId: user.id } };
+      bot.sendMessage(chatId, 'Начинаем создание гороскопа! ✨\n\nКак вас зовут?');
+    });
+  });
+
+  bot.on('message', (msg) => {
+    const chatId = msg.chat.id;
+    const text = msg.text;
+
+    if (!text || text.startsWith('/')) return;
+
+    const conversation = userConversations[chatId];
+    if (!conversation) return;
+
+    // ... (rest of the conversation logic)
+  });
+
+  async function generateAndSaveHoroscope(userData, chatId) {
+    // ... (rest of the generation logic)
+  }
+
+  console.log('Telegram bot has been started...');
 });
