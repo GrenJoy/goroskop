@@ -7,9 +7,10 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // --- CONFIGURATION ---
-const DEEPSEEK_API_KEY = 'sk-a3699ffb8a5146778610815d7ca8537f'; // NEW KEY
+const DEEPSEEK_API_KEY = 'sk-a3699ffb8a5146778610815d7ca8537f';
+const TELEGRAM_TOKEN = '7996945974:AAGQ92e_qrZiZ8VWhKZZDHhQoAnDGfvxips';
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 2; // How many times to retry the API call
 
 // --- MIDDLEWARE ---
 app.use(cors()); 
@@ -21,7 +22,10 @@ app.use((req, res, next) => {
 
 // --- DATABASE SETUP ---
 const db = new sqlite3.Database('./database.db', (err) => {
-  if (err) return console.error('Error opening database', err.message);
+  if (err) {
+    console.error('FATAL: Error opening database', err.message);
+    process.exit(1); // Exit if DB can't be opened
+  }
   console.log('Connected to the SQLite database.');
   db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, password TEXT, telegram_id TEXT)`);
@@ -29,7 +33,7 @@ const db = new sqlite3.Database('./database.db', (err) => {
   });
 });
 
-// --- SHARED HOROSCOPE GENERATION LOGIC ---
+// --- SHARED, ROBUST HOROSCOPE GENERATION LOGIC ---
 async function getHoroscopeFromAPI(prompt) {
   for (let i = 0; i <= MAX_RETRIES; i++) {
     try {
@@ -41,7 +45,7 @@ async function getHoroscopeFromAPI(prompt) {
           model: 'deepseek-chat',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.75,
-          max_tokens: 4096
+          max_tokens: 4096 // Increased token limit
         }),
       });
 
@@ -55,10 +59,14 @@ async function getHoroscopeFromAPI(prompt) {
 
       const data = JSON.parse(responseText);
       const content = data.choices?.[0]?.message?.content;
-      if (!content) throw new Error('API response is missing expected content structure.');
+      if (!content) {
+        throw new Error('API response is missing expected content structure.');
+      }
       
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON object found in AI-generated content');
+      if (!jsonMatch) {
+        throw new Error('No JSON object found in AI-generated content');
+      }
       
       const parsedJson = JSON.parse(jsonMatch[0]);
       const requiredKeys = ["introduction", "futureOutlook", "challenges", "advice", "luckyElements"];
@@ -161,88 +169,102 @@ app.post('/horoscope', authenticateToken, async (req, res) => {
 });
 
 // --- TELEGRAM BOT ---
+const TelegramBot = require('node-telegram-bot-api');
+
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
-  const TELEGRAM_TOKEN = '7996945974:AAGQ92e_qrZiZ8VWhKZZDHhQoAnDGfvxips';
-  const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+  
+  try {
+    console.log('Initializing Telegram Bot...');
+    const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+    console.log('Telegram Bot initialized successfully.');
 
-  bot.on('polling_error', (error) => console.error(`Telegram Polling Error: ${error.code} - ${error.message}`));
+    bot.on('polling_error', (error) => console.error(`Telegram Polling Error: ${error.code} - ${error.message}`));
 
-  const userConversations = {};
+    const userConversations = {};
 
-  bot.onText(/\/start|\/connect|\/horoscope/, (msg) => {
-    db.get('SELECT * FROM users WHERE telegram_id = ?', [msg.chat.id], (err, user) => {
-      if (msg.text.startsWith('/connect')) {
-        const email = msg.text.split(' ')[1];
-        if (!email) return bot.sendMessage(msg.chat.id, 'Пожалуйста, укажите ваш email после команды. Например: /connect user@example.com');
-        db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
-          if (err || !user) return bot.sendMessage(msg.chat.id, 'Аккаунт с таким email не найден.');
-          db.run('UPDATE users SET telegram_id = ? WHERE email = ?', [msg.chat.id, email], (err) => {
-            if (err) return bot.sendMessage(msg.chat.id, 'Не удалось привязать аккаунт.');
-            bot.sendMessage(msg.chat.id, 'Ваш Telegram успешно привязан к аккаунту!');
-          });
-        });
-      } else if (msg.text.startsWith('/horoscope')) {
-        if (err || !user) return bot.sendMessage(msg.chat.id, 'Пожалуйста, сначала привяжите ваш аккаунт с помощью команды /connect [ваш_email]');
-        userConversations[msg.chat.id] = { step: 1, answers: { userId: user.id } };
-        bot.sendMessage(msg.chat.id, 'Начинаем создание гороскопа! ✨\n\nКак вас зовут?');
-      } else { // /start
-        bot.sendMessage(msg.chat.id, `Добро пожаловать в Космический Гороскоп! \u0430\u0441\u0442\u0440\u0430\u0433\u0443\u0448\u0430\u043a\n\nЧтобы привязать ваш аккаунт с сайта, используйте команду:\n/connect \u0432\u0430\u0448_email@example.com\n\nЧтобы создать новый гороскоп, используйте команду /horoscope`);
+    bot.onText(/\/start|\/connect|\/horoscope/, (msg) => {
+        const chatId = msg.chat.id;
+        const text = msg.text;
+
+        if (text.startsWith('/connect')) {
+            const email = text.split(' ')[1];
+            if (!email) return bot.sendMessage(chatId, 'Пожалуйста, укажите ваш email после команды. Например: /connect user@example.com');
+            db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
+                if (err || !user) return bot.sendMessage(chatId, 'Аккаунт с таким email не найден.');
+                db.run('UPDATE users SET telegram_id = ? WHERE email = ?', [chatId, email], (err) => {
+                    if (err) return bot.sendMessage(chatId, 'Не удалось привязать аккаунт.');
+                    bot.sendMessage(chatId, 'Ваш Telegram успешно привязан к аккаунту!');
+                });
+            });
+        } else if (text.startsWith('/horoscope')) {
+            db.get('SELECT * FROM users WHERE telegram_id = ?', [chatId], (err, user) => {
+                if (err || !user) return bot.sendMessage(chatId, 'Пожалуйста, сначала привяжите ваш аккаунт с помощью команды /connect [ваш_email]');
+                userConversations[chatId] = { step: 1, answers: { userId: user.id } };
+                bot.sendMessage(chatId, 'Начинаем создание гороскопа! ✨\n\nКак вас зовут?');
+            });
+        } else { // /start
+            bot.sendMessage(chatId, `Добро пожаловать в Космический Гороскоп! \u0430\u0441\u0442\u0440\u0430\u0433\u0443\u0448\u0430\u043a\n\nЧтобы привязать ваш аккаунт с сайта, используйте команду:\n/connect \u0432\u0430\u0448_email@example.com\n\nЧтобы создать новый гороскоп, используйте команду /horoscope`);
+        }
+    });
+
+    bot.on('message', async (msg) => {
+      const chatId = msg.chat.id;
+      const text = msg.text;
+      if (!text || text.startsWith('/')) return;
+      const conversation = userConversations[chatId];
+      if (!conversation) return;
+
+      try {
+        switch (conversation.step) {
+          case 1:
+            conversation.answers.name = text;
+            conversation.step = 2;
+            bot.sendMessage(chatId, `Приятно познакомиться, ${text}!\n\nТеперь введите вашу дату рождения (например, 01.01.1990).`);
+            break;
+          case 2:
+            if (!/^\d{2}\.\d{2}\.\d{4}$/.test(text)) return bot.sendMessage(chatId, 'Пожалуйста, введите дату в формате ДД.ММ.ГГГГ.');
+            conversation.answers.birthDate = text;
+            conversation.step = 3;
+            bot.sendMessage(chatId, `Отлично. Перечислите через запятую несколько ваших черт характера.`);
+            break;
+          case 3:
+            conversation.answers.traits = text.split(',').map(t => t.trim());
+            conversation.step = 4;
+            bot.sendMessage(chatId, 'И последнее: расскажите немного о себе. Что вас сейчас волнует, к чему вы стремитесь?');
+            break;
+          case 4:
+            conversation.answers.about = text;
+            bot.sendMessage(chatId, 'Благодарю. Звезды уже выстраиваются в ряд... Это может занять до минуты... ✨');
+            const prompt = getHoroscopePrompt(conversation.answers.name, conversation.answers.birthDate, conversation.answers.traits, conversation.answers.about);
+            const horoscopeData = await getHoroscopeFromAPI(prompt);
+            
+            let luckyElementsText = horoscopeData.luckyElements;
+            if (typeof luckyElementsText === 'object' && luckyElementsText !== null) {
+              luckyElementsText = Object.entries(luckyElementsText).map(([k, v]) => `- ${k.charAt(0).toUpperCase() + k.slice(1)}: ${v}`).join('\n');
+            }
+            
+            const horoscopeMessage = `*${horoscopeData.introduction}*\n\n🔮 *Прогноз на будущее:*\n${horoscopeData.futureOutlook}\n\n⚔️ *Испытания и возможности:*\n${horoscopeData.challenges}\n\n💡 *Советы звезд:*\n${horoscopeData.advice}\n\n🍀 *Счастливые элементы:*\n${luckyElementsText}`;
+            bot.sendMessage(chatId, horoscopeMessage, { parse_mode: 'Markdown' });
+
+            const elementsToSave = typeof horoscopeData.luckyElements === 'object' ? JSON.stringify(horoscopeData.luckyElements) : horoscopeData.luckyElements;
+            db.run(`INSERT INTO horoscopes (user_id, introduction, futureOutlook, challenges, advice, luckyElements) VALUES (?, ?, ?, ?, ?, ?)`, [conversation.answers.userId, horoscopeData.introduction, horoscopeData.futureOutlook, horoscopeData.challenges, horoscopeData.advice, elementsToSave]);
+            
+            delete userConversations[chatId];
+            break;
+        }
+      } catch (error) {
+          console.error('Conversation processing error:', error.message);
+          bot.sendMessage(chatId, 'Произошла внутренняя ошибка. Попробуйте начать заново с команды /horoscope');
+          delete userConversations[chatId];
       }
     });
-  });
 
-  bot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
-    if (!text || text.startsWith('/')) return;
-    const conversation = userConversations[chatId];
-    if (!conversation) return;
+    console.log('Telegram bot event listeners are set up.');
 
-    try {
-      switch (conversation.step) {
-        case 1:
-          conversation.answers.name = text;
-          conversation.step = 2;
-          bot.sendMessage(chatId, `Приятно познакомиться, ${text}!\n\nТеперь введите вашу дату рождения (например, 01.01.1990).`);
-          break;
-        case 2:
-          if (!/^\d{2}\.\d{2}\.\d{4}$/.test(text)) return bot.sendMessage(chatId, 'Пожалуйста, введите дату в формате ДД.ММ.ГГГГ.');
-          conversation.answers.birthDate = text;
-          conversation.step = 3;
-          bot.sendMessage(chatId, `Отлично. Перечислите через запятую несколько ваших черт характера.`);
-          break;
-        case 3:
-          conversation.answers.traits = text.split(',').map(t => t.trim());
-          conversation.step = 4;
-          bot.sendMessage(chatId, 'И последнее: расскажите немного о себе. Что вас сейчас волнует, к чему вы стремитесь?');
-          break;
-        case 4:
-          conversation.answers.about = text;
-          bot.sendMessage(chatId, 'Благодарю. Звезды уже выстраиваются в ряд... Это может занять до минуты... ✨');
-          const prompt = getHoroscopePrompt(conversation.answers.name, conversation.answers.birthDate, conversation.answers.traits, conversation.answers.about);
-          const horoscopeData = await getHoroscopeFromAPI(prompt);
-          
-          let luckyElementsText = horoscopeData.luckyElements;
-          if (typeof luckyElementsText === 'object' && luckyElementsText !== null) {
-            luckyElementsText = Object.entries(luckyElementsText).map(([k, v]) => `- ${k.charAt(0).toUpperCase() + k.slice(1)}: ${v}`).join('\n');
-          }
-          
-          const horoscopeMessage = `*${horoscopeData.introduction}*\n\n🔮 *Прогноз на будущее:*\n${horoscopeData.futureOutlook}\n\n⚔️ *Испытания и возможности:*\n${horoscopeData.challenges}\n\n💡 *Советы звезд:*\n${horoscopeData.advice}\n\n🍀 *Счастливые элементы:*\n${luckyElementsText}`;
-          bot.sendMessage(chatId, horoscopeMessage, { parse_mode: 'Markdown' });
-
-          const elementsToSave = typeof horoscopeData.luckyElements === 'object' ? JSON.stringify(horoscopeData.luckyElements) : horoscopeData.luckyElements;
-          db.run(`INSERT INTO horoscopes (user_id, introduction, futureOutlook, challenges, advice, luckyElements) VALUES (?, ?, ?, ?, ?, ?)`, [conversation.answers.userId, horoscopeData.introduction, horoscopeData.futureOutlook, horoscopeData.challenges, horoscopeData.advice, elementsToSave]);
-          
-          delete userConversations[chatId];
-          break;
-      }
-    } catch (error) {
-        console.error('Conversation processing error:', error.message);
-        bot.sendMessage(chatId, 'Произошла внутренняя ошибка. Попробуйте начать заново с команды /horoscope');
-        delete userConversations[chatId];
-    }
-  });
-
-  console.log('Telegram bot has been started...');
+  } catch (error) {
+    console.error('CRITICAL: Failed to initialize Telegram Bot. Please check your TELEGRAM_TOKEN and network connection.');
+    console.error('Detailed Error:', error.message);
+    process.exit(1); // Exit if bot fails to initialize
+  }
 });
