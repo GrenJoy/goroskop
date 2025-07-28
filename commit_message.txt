@@ -1,1 +1,1 @@
-\"feat: Initial commit of full-stack horoscope generator\"  
+feat: Integrate Render backend and environment variables
