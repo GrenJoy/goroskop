@@ -11,7 +11,16 @@ const DEEPSEEK_API_KEY = 'sk-9f1ba9f795104fbbb13cb33d20ddc70b'; // Your key is n
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 
 // --- MIDDLEWARE ---
-app.use(cors({ origin: 'http://localhost:5173' }));
+const allowedOrigins = ['http://localhost:5173', 'https://goroskop2.netlify.app'];
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
+}));
 app.use(express.json());
 
 // --- DATABASE SETUP ---
