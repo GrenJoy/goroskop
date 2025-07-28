@@ -2,7 +2,7 @@ const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const fetch = require('node-fetch');
-const TelegramBot = require('node-telegram-bot-api'); // MOVED TO TOP
+const TelegramBot = require('node-telegram-bot-api');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3001;
 const DEEPSEEK_API_KEY = 'sk-a3699ffb8a5146778610815d7ca8537f';
 const TELEGRAM_TOKEN = '7996945974:AAGQ92e_qrZiZ8VWhKZZDHhQoAnDGfvxips';
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 1; // Reduced retries for faster failure detection
 
 // --- MIDDLEWARE ---
 app.use(cors()); 
@@ -34,7 +34,7 @@ const db = new sqlite3.Database('./database.db', (err) => {
   });
 });
 
-// --- SHARED, ROBUST HOROSCOPE GENERATION LOGIC ---
+// --- SIMPLIFIED & ROBUST HOROSCOPE GENERATION ---
 async function getHoroscopeFromAPI(prompt) {
   for (let i = 0; i <= MAX_RETRIES; i++) {
     try {
@@ -45,8 +45,8 @@ async function getHoroscopeFromAPI(prompt) {
         body: JSON.stringify({
           model: 'deepseek-chat',
           messages: [{ role: 'user', content: prompt }],
-          temperature: 0.75,
-          max_tokens: 4096
+          temperature: 0.7,
+          max_tokens: 2048 // Safe token limit
         }),
       });
 
@@ -77,19 +77,55 @@ async function getHoroscopeFromAPI(prompt) {
   }
 }
 
-// --- PROMPT TEMPLATE ---
+// --- NEW, SIMPLIFIED PROMPT TEMPLATE ---
+javascript
+
+Свернуть
+
+Перенос
+
+Исполнить
+
+Копировать
 function getHoroscopePrompt(name, birthDate, traits, about) {
   return `
-  Ты — Лира, Звёздная Ткачиха, древний и мудрый астролог... [PROMPT OMITTED FOR BREVITY, IT IS UNCHANGED]
-  `;
+Ты — мистический и мудрый астролог. Твоя задача — создать персонализированный гороскоп для пользователя на основе следующих данных:
+- Имя: ${name}
+- Дата рождения: ${birthDate}
+- Черты характера: ${traits.join(', ')}
+- О пользователе: "${about}"
+
+Твой ответ ДОЛЖЕН быть строго в формате JSON-объекта и ничего более. Не добавляй никакого текста до или после JSON. JSON-объект должен содержать следующие ключи с непустыми строками:
+- "introduction": Тёплое, мистическое приветствие для ${name}. Пример: "Звёзды приветствуют тебя, ${name}! Космос раскрывает свои тайны..."
+- "futureOutlook": Подробный прогноз на ближайшие 7 дней, связанный с тем, что волнует пользователя (из поля "about"). Минимум 50 слов.
+- "challenges": Потенциальные препятствия и советы, как их преодолеть. Минимум 50 слов.
+- "advice": 2-3 конкретных, действенных совета для личностного роста и достижения целей. Минимум 50 слов.
+- "luckyElements": Список из минимум 3 счастливых элементов (например, цвет, число, минерал). Форматируй как строку, например: "Цвет: индиго, Число: 7, Минерал: аметист".
+
+Тон должен быть ободряющим, таинственным и глубоким. Убедись, что все ключи присутствуют, их значения — непустые строки, и ответ — это только JSON-объект.
+Пример ответа:
+{
+  "introduction": "Звёзды приветствуют тебя, ${name}! Космос раскрывает свои тайны...",
+  "futureOutlook": "На этой неделе тебя ждут новые возможности в карьере. Твоя энергия привлечет внимание коллег, но будь внимателен к мелочам.",
+  "challenges": "Возможны небольшие конфликты в личной жизни. Сохраняй спокойствие и используй открытый диалог для решения проблем.",
+  "advice": "Сосредоточься на своих целях, занимайся медитацией и планируй свои действия заранее.",
+  "luckyElements": "Цвет: синий, Число: 12, Минерал: лазурит"
+}
+`;
 }
 
-// --- AUTH ROUTES ---
+// --- AUTH & WEB ROUTES ---
+const authenticateToken = (req, res, next) => {
+  const token = req.headers['authorization'];
+  if (!token) return res.sendStatus(401);
+  req.userId = parseInt(token, 10);
+  next();
+};
+
 app.post('/register', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
-  const sql = 'INSERT INTO users (email, password) VALUES (?, ?)';
-  db.run(sql, [email, password], function(err) {
+  db.run('INSERT INTO users (email, password) VALUES (?, ?)', [email, password], function(err) {
     if (err) {
       if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'This email is already registered.' });
       return res.status(500).json({ error: 'Failed to register user.' });
@@ -101,21 +137,12 @@ app.post('/register', (req, res) => {
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
-  const sql = 'SELECT * FROM users WHERE email = ? AND password = ?';
-  db.get(sql, [email, password], (err, user) => {
+  db.get('SELECT * FROM users WHERE email = ? AND password = ?', [email, password], (err, user) => {
     if (err) return res.status(500).json({ error: 'Server error' });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     res.status(200).json({ message: 'Login successful', token: user.id });
   });
 });
-
-// --- WEB HOROSCOPE ROUTE ---
-const authenticateToken = (req, res, next) => {
-  const token = req.headers['authorization'];
-  if (!token) return res.sendStatus(401);
-  req.userId = parseInt(token, 10);
-  next();
-};
 
 app.post('/horoscope', authenticateToken, async (req, res) => {
   const { name, birthDate, traits, about } = req.body;
@@ -131,14 +158,10 @@ app.post('/horoscope', authenticateToken, async (req, res) => {
         .join('\n');
     }
 
-    const responseData = {
-        ...horoscopeData,
-        luckyElements: luckyElementsText
-    };
-
+    const responseData = { ...horoscopeData, luckyElements: luckyElementsText };
     const elementsToSave = typeof horoscopeData.luckyElements === 'object' ? JSON.stringify(horoscopeData.luckyElements) : horoscopeData.luckyElements;
-    const insertSql = `INSERT INTO horoscopes (user_id, introduction, futureOutlook, challenges, advice, luckyElements) VALUES (?, ?, ?, ?, ?, ?)`;
-    db.run(insertSql, [req.userId, horoscopeData.introduction, horoscopeData.futureOutlook, horoscopeData.challenges, horoscopeData.advice, elementsToSave], function(err) {
+    
+    db.run(`INSERT INTO horoscopes (user_id, introduction, futureOutlook, challenges, advice, luckyElements) VALUES (?, ?, ?, ?, ?, ?)`, [req.userId, horoscopeData.introduction, horoscopeData.futureOutlook, horoscopeData.challenges, horoscopeData.advice, elementsToSave], function(err) {
       if (err) {
         console.error("DB insert error:", err.message);
         return res.status(500).json({ error: "Failed to save horoscope." });
@@ -165,11 +188,80 @@ app.listen(PORT, () => {
     const userConversations = {};
 
     bot.onText(/\/start|\/connect|\/horoscope/, (msg) => {
-        // ... [UNCHANGED BOT LOGIC] ...
+        const chatId = msg.chat.id;
+        const text = msg.text;
+
+        if (text.startsWith('/connect')) {
+            const email = text.split(' ')[1];
+            if (!email) return bot.sendMessage(chatId, 'Пожалуйста, укажите ваш email. /connect user@example.com');
+            db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
+                if (err || !user) return bot.sendMessage(chatId, 'Аккаунт с таким email не найден.');
+                db.run('UPDATE users SET telegram_id = ? WHERE email = ?', [chatId, email], (err) => {
+                    if (err) return bot.sendMessage(chatId, 'Не удалось привязать аккаунт.');
+                    bot.sendMessage(chatId, 'Ваш Telegram успешно привязан!');
+                });
+            });
+        } else if (text.startsWith('/horoscope')) {
+            db.get('SELECT * FROM users WHERE telegram_id = ?', [chatId], (err, user) => {
+                if (err || !user) return bot.sendMessage(chatId, 'Пожалуйста, сначала привяжите ваш аккаунт. /connect [ваш_email]');
+                userConversations[chatId] = { step: 1, answers: { userId: user.id } };
+                bot.sendMessage(chatId, 'Начинаем создание гороскопа! ✨\n\nКак вас зовут?');
+            });
+        } else { // /start
+            bot.sendMessage(chatId, `Добро пожаловать в Космический Гороскоп!\n\n/connect [ваш_email] - привязать аккаунт.\n/horoscope - создать новый г��роскоп.`);
+        }
     });
 
     bot.on('message', async (msg) => {
-        // ... [UNCHANGED BOT LOGIC] ...
+      const chatId = msg.chat.id;
+      const text = msg.text;
+      if (!text || text.startsWith('/')) return;
+      const conversation = userConversations[chatId];
+      if (!conversation) return;
+
+      try {
+        switch (conversation.step) {
+          case 1:
+            conversation.answers.name = text;
+            conversation.step = 2;
+            bot.sendMessage(chatId, `Приятно познакомиться, ${text}!\n\nТеперь введите вашу дату рождения (например, 01.01.1990).`);
+            break;
+          case 2:
+            if (!/^\d{2}\.\d{2}\.\d{4}$/.test(text)) return bot.sendMessage(chatId, 'Пожалуйста, введите дату в формате ДД.ММ.ГГГГ.');
+            conversation.answers.birthDate = text;
+            conversation.step = 3;
+            bot.sendMessage(chatId, `Отлично. Перечислите через запятую несколько ваших черт характера.`);
+            break;
+          case 3:
+            conversation.answers.traits = text.split(',').map(t => t.trim());
+            conversation.step = 4;
+            bot.sendMessage(chatId, 'И последнее: расскажите немного о себе. Что вас сейчас волнует, к чему вы стремитесь?');
+            break;
+          case 4:
+            conversation.answers.about = text;
+            bot.sendMessage(chatId, 'Благодарю. Звезды уже выстраиваются в ряд... Это может занять до минуты... ✨');
+            const prompt = getHoroscopePrompt(conversation.answers.name, conversation.answers.birthDate, conversation.answers.traits, conversation.answers.about);
+            const horoscopeData = await getHoroscopeFromAPI(prompt);
+            
+            let luckyElementsText = horoscopeData.luckyElements;
+            if (typeof luckyElementsText === 'object' && luckyElementsText !== null) {
+              luckyElementsText = Object.entries(luckyElementsText).map(([k, v]) => `- ${k.charAt(0).toUpperCase() + k.slice(1)}: ${v}`).join('\n');
+            }
+            
+            const horoscopeMessage = `*${horoscopeData.introduction}*\n\n🔮 *Прогноз на будущее:*\n${horoscopeData.futureOutlook}\n\n⚔️ *Испытания и возможности:*\n${horoscopeData.challenges}\n\n💡 *Советы звезд:*\n${horoscopeData.advice}\n\n🍀 *Счастливые элементы:*\n${luckyElementsText}`;
+            bot.sendMessage(chatId, horoscopeMessage, { parse_mode: 'Markdown' });
+
+            const elementsToSave = typeof horoscopeData.luckyElements === 'object' ? JSON.stringify(horoscopeData.luckyElements) : horoscopeData.luckyElements;
+            db.run(`INSERT INTO horoscopes (user_id, introduction, futureOutlook, challenges, advice, luckyElements) VALUES (?, ?, ?, ?, ?, ?)`, [conversation.answers.userId, horoscopeData.introduction, horoscopeData.futureOutlook, horoscopeData.challenges, horoscopeData.advice, elementsToSave]);
+            
+            delete userConversations[chatId];
+            break;
+        }
+      } catch (error) {
+          console.error('Conversation processing error:', error.message);
+          bot.sendMessage(chatId, 'Произошла внутренняя ошибка. Попробуйте начать заново с команды /horoscope');
+          delete userConversations[chatId];
+      }
     });
 
     console.log('Telegram bot event listeners are set up.');
