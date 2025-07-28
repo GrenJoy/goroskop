@@ -132,7 +132,7 @@ app.post('/horoscope', authenticateToken, async (req, res) => {
 const TelegramBot = require('node-telegram-bot-api');
 
 // --- TELEGRAM BOT SETUP ---
-const TELEGRAM_TOKEN = '7996945974:AAGQ92e_qrZiZ8VWhKZZDHhQoAnDGfvxips';
+const TELEGRAM_TOKEN = '7996945974:AAGQ92e_qrZiZ8VWhKZZDHhQoAnDGfvxips1'; // Temporarily changed to reset connections
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
 bot.onText(/\/start/, (msg) => {
